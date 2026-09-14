@@ -385,26 +385,30 @@ class Home extends ConsumerWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'WE HERO',
-                  style: TextStyle(
-                    color: navy,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'WE HERO',
+                    style: TextStyle(
+                      color: navy,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '$nickname님, 오늘도 작은 행동부터 시작해요.',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: HeroColors.secondaryText,
-                    fontSize: 19.2,
+                  const SizedBox(height: 6),
+                  Text(
+                    '$nickname님, 오늘도 작은 행동부터 시작해요.',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: HeroColors.secondaryText,
+                      fontSize: 19.2,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
