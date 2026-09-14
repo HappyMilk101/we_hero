@@ -1,6 +1,54 @@
 import 'package:flutter/material.dart';
 
-void main() => runApp(const WeHeroApp());
+import 'dart:io';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'features/auth/application/auth_controller.dart';
+import 'features/auth/data/auth_repository.dart';
+import 'features/missions/domain/mission.dart';
+import 'features/missions/data/mission_repository.dart';
+import 'features/sidekick/application/sidekick_controller.dart';
+import 'features/sidekick/data/sidekick_repository.dart';
+import 'features/economy/data/economy_repository.dart';
+import 'features/missions/application/activity_verification_service.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final url = const String.fromEnvironment('SUPABASE_URL');
+  final publishableKey = const String.fromEnvironment(
+    'SUPABASE_PUBLISHABLE_KEY',
+  );
+  SidekickRepository repository = UnavailableSidekickRepository();
+  MissionRepository missionRepository = const UnavailableMissionRepository();
+  AuthRepository authRepository = const UnavailableAuthRepository();
+  debugPrint(
+    '[Supabase] configuration: url=${url.isNotEmpty}, '
+    'publishableKey=${publishableKey.isNotEmpty}',
+  );
+  if (url.isNotEmpty && publishableKey.isNotEmpty) {
+    await Supabase.initialize(url: url, publishableKey: publishableKey);
+    debugPrint('[Supabase] initialized');
+    final client = Supabase.instance.client;
+    repository = SupabaseSidekickRepository(client);
+    missionRepository = SupabaseMissionRepository(client);
+    authRepository = SupabaseAuthRepository(client);
+  } else {
+    debugPrint(
+      '[Supabase] not initialized. Start with --dart-define=SUPABASE_URL=... '
+      'and --dart-define=SUPABASE_PUBLISHABLE_KEY=...',
+    );
+  }
+  runApp(
+    WeHeroApp(
+      repository: repository,
+      authRepository: authRepository,
+      missionRepository: missionRepository,
+    ),
+  );
+}
 
 const navy = Color(0xFF17233C),
     yellow = Color(0xFFFFC857),
@@ -8,99 +56,107 @@ const navy = Color(0xFF17233C),
     coral = Color(0xFFFF7D6E),
     bg = Color(0xFFF7F9FC);
 
-class Mission {
-  const Mission(
-    this.title,
-    this.description,
-    this.category,
-    this.minutes,
-    this.coin,
-    this.xp,
-    this.icon,
-  );
-  final String title, description, category;
-  final int minutes, coin, xp;
-  final IconData icon;
-}
-
-const missions = <Mission>[
-  Mission(
-    '플로깅 10분',
-    '동네를 산책하며 눈에 보이는 쓰레기를 주워보세요.',
-    '환경',
-    10,
-    10,
-    10,
-    Icons.eco,
-  ),
-  Mission(
-    '텀블러 사용하기',
-    '오늘 한 번, 일회용 컵 대신 나의 컵을 사용해요.',
-    '환경',
-    5,
-    5,
-    5,
-    Icons.local_cafe,
-  ),
-  Mission(
-    '물건 3개 기부 준비',
-    '사용하지 않는 물건을 골라 나눔을 준비해요.',
-    '나눔',
-    20,
-    15,
-    10,
-    Icons.favorite,
-  ),
-  Mission(
-    '동네 봉사 참여하기',
-    '지역을 더 따뜻하게 만드는 활동에 참여해요.',
-    '지역사회',
-    120,
-    30,
-    40,
-    Icons.diversity_3,
-  ),
-];
-
-class WeHeroApp extends StatefulWidget {
-  const WeHeroApp({super.key});
+class WeHeroApp extends StatelessWidget {
+  const WeHeroApp({
+    super.key,
+    this.repository = const UnavailableSidekickRepository(),
+    this.authRepository = const UnavailableAuthRepository(),
+    this.missionRepository = const UnavailableMissionRepository(),
+  });
+  final SidekickRepository repository;
+  final AuthRepository authRepository;
+  final MissionRepository missionRepository;
   @override
-  State<WeHeroApp> createState() => _WeHeroAppState();
+  Widget build(BuildContext context) => ProviderScope(
+    overrides: [
+      sidekickRepositoryProvider.overrideWithValue(repository),
+      authRepositoryProvider.overrideWithValue(authRepository),
+      missionRepositoryProvider.overrideWithValue(missionRepository),
+    ],
+    child: const _AuthenticatedApp(),
+  );
 }
 
-class _WeHeroAppState extends State<WeHeroApp> {
-  int tab = 0, coins = 120, xp = 65;
-  bool onboarded = false;
+class _AuthenticatedApp extends ConsumerStatefulWidget {
+  const _AuthenticatedApp();
+
+  @override
+  ConsumerState<_AuthenticatedApp> createState() => _WeHeroAppState();
+}
+
+class _WeHeroAppState extends ConsumerState<_AuthenticatedApp> {
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  final _scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+  int tab = 0;
   final completed = <String>[];
   final owned = <String>{'기본 티셔츠'};
   String? equipped;
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    debugShowCheckedModeBanner: false,
-    title: 'WE HERO',
-    theme: ThemeData(
-      useMaterial3: true,
-      scaffoldBackgroundColor: bg,
-      colorScheme: ColorScheme.fromSeed(seedColor: navy),
-      fontFamily: 'Arial',
-    ),
-    home: onboarded
-        ? _shell()
-        : Welcome(onStart: () => setState(() => onboarded = true)),
-  );
-  Widget _shell() {
+  Widget build(BuildContext context) {
+    final authState = ref.watch(authControllerProvider);
+    return MaterialApp(
+      navigatorKey: _navigatorKey,
+      scaffoldMessengerKey: _scaffoldMessengerKey,
+      debugShowCheckedModeBanner: false,
+      title: 'WE HERO',
+      theme: ThemeData(
+        useMaterial3: true,
+        scaffoldBackgroundColor: bg,
+        colorScheme: ColorScheme.fromSeed(seedColor: navy),
+        fontFamily: 'Arial',
+      ),
+      home: switch (authState.status) {
+        AuthStatus.loading => const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+        AuthStatus.authenticated => _shell(authState.nickname ?? ''),
+        AuthStatus.error => Welcome(
+          error: authState.message,
+          onStart: (nickname) =>
+              ref.read(authControllerProvider.notifier).signIn(nickname),
+        ),
+        AuthStatus.unauthenticated => Welcome(
+          onStart: (nickname) =>
+              ref.read(authControllerProvider.notifier).signIn(nickname),
+        ),
+      },
+    );
+  }
+
+  Widget _shell(String nickname) {
+    final economy = ref.watch(economyProvider);
+    final missionState = ref.watch(missionsProvider);
+    final missionList = missionState.valueOrNull ?? const <Mission>[];
     final pages = [
-      Home(coins: coins, xp: xp, completed: completed, onMission: _openMission),
-      Missions(completed: completed, onMission: _openMission),
+      Home(
+        nickname: nickname,
+        missions: missionList,
+        coins: economy.coinBalance,
+        xp: economy.heroXp,
+        completed: completed,
+        onMission: _openMission,
+      ),
+      Missions(
+        missions: missionList,
+        completed: completed,
+        onMission: _openMission,
+      ),
       HeroPage(
-        coins: coins,
-        xp: xp,
+        nickname: nickname,
+        coins: economy.coinBalance,
+        xp: economy.heroXp,
         owned: owned,
         equipped: equipped,
         onBuy: _buy,
         onEquip: (v) => setState(() => equipped = v),
       ),
-      Profile(coins: coins, xp: xp, completed: completed),
+      Profile(
+        coins: economy.coinBalance,
+        xp: economy.heroXp,
+        completed: completed,
+        nickname: nickname,
+        onLogout: () => ref.read(authControllerProvider.notifier).signOut(),
+      ),
     ];
     return Scaffold(
       body: SafeArea(child: pages[tab]),
@@ -142,76 +198,92 @@ class _WeHeroAppState extends State<WeHeroApp> {
     );
   }
 
-  void _openMission(Mission mission) => Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) => MissionDetail(
-        mission: mission,
-        done: completed.contains(mission.title),
-        onComplete: () {
-          setState(() {
-            if (!completed.contains(mission.title)) {
-              completed.add(mission.title);
-              coins += mission.coin;
-              xp += mission.xp;
-            }
-          });
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('완료했어요! Coin +${mission.coin}, XP +${mission.xp}'),
-            ),
-          );
-        },
-      ),
-    ),
-  );
+  void _openMission(Mission mission) {
+    debugPrint('[Mission] tapped id=${mission.id ?? 'unknown'}');
+    try {
+      debugPrint('[Mission] navigate to activity verification');
+      _navigatorKey.currentState!.push(
+        MaterialPageRoute(
+          builder: (_) => MissionDetail(
+            mission: mission,
+            done: completed.contains(mission.title),
+            onComplete: () {
+              setState(() {
+                if (!completed.contains(mission.title)) {
+                  completed.add(mission.title);
+                  ref
+                      .read(economyProvider.notifier)
+                      .addMissionReward(coins: mission.coin, xp: mission.xp);
+                }
+              });
+              Navigator.pop(context);
+              _scaffoldMessengerKey.currentState?.showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '완료했어요! Coin +${mission.coin}, XP +${mission.xp}',
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('[Mission] navigation failed: ${error.runtimeType}: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('활동 인증 화면을 열지 못했어요.')));
+    }
+  }
+
   void _buy(String item, int price) {
-    if (coins < price) return;
+    if (!ref.read(economyProvider.notifier).purchaseItem(price)) return;
     setState(() {
-      coins -= price;
       owned.add(item);
     });
   }
 
-  void _sidekick() => showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    builder: (_) => Padding(
-      padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const CircleAvatar(
-            radius: 28,
-            backgroundColor: mint,
-            child: Icon(Icons.smart_toy, color: navy, size: 30),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '오늘의 Sidekick',
-            style: Theme.of(context).textTheme.titleLarge
-                ?.copyWith(fontWeight: FontWeight.bold, color: navy),
-          ),
-          const SizedBox(height: 8),
-          const Text('최근 환경 미션을 잘 이어가고 있네! 오늘은 10분 플로깅으로 가볍게 시작해볼까?'),
-          const SizedBox(height: 18),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _openMission(missions.first);
-            },
-            child: const Text('추천 미션 보기'),
-          ),
-        ],
-      ),
-    ),
-  );
+  void _sidekick() {
+    debugPrint('[Sidekick] button tapped');
+    showModalBottomSheet<void>(
+      context: _navigatorKey.currentState!.overlay!.context,
+      showDragHandle: true,
+      builder: (_) => SidekickSheet(onMission: _openMission),
+    );
+  }
 }
 
-class Welcome extends StatelessWidget {
-  const Welcome({super.key, required this.onStart});
-  final VoidCallback onStart;
+class Welcome extends StatefulWidget {
+  const Welcome({super.key, required this.onStart, this.error});
+  final ValueChanged<String> onStart;
+  final String? error;
+  @override
+  State<Welcome> createState() => _WelcomeState();
+}
+
+class _WelcomeState extends State<Welcome> {
+  final nicknameController = TextEditingController();
+  String? validationMessage;
+
+  @override
+  void dispose() {
+    nicknameController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final nickname = nicknameController.text.trim();
+    final length = nickname.runes.length;
+    if (nickname.isEmpty) {
+      setState(() => validationMessage = '닉네임을 입력해줘.');
+    } else if (length < 2 || length > 20) {
+      setState(() => validationMessage = '닉네임은 2~20자로 입력해줘.');
+    } else {
+      setState(() => validationMessage = null);
+      widget.onStart(nickname);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: Padding(
@@ -243,6 +315,19 @@ class Welcome extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const Text('현실의 좋은 행동을 기록하고\n나만의 Hero를 성장시켜 보세요.'),
+          const SizedBox(height: 20),
+          TextField(
+            controller: nicknameController,
+            maxLength: 20,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _submit(),
+            decoration: InputDecoration(
+              labelText: '닉네임',
+              hintText: '이름을 입력해줘',
+              errorText: validationMessage ?? widget.error,
+              border: const OutlineInputBorder(),
+            ),
+          ),
           const Spacer(),
           SizedBox(
             width: double.infinity,
@@ -252,7 +337,7 @@ class Welcome extends StatelessWidget {
                 backgroundColor: yellow,
                 foregroundColor: navy,
               ),
-              onPressed: onStart,
+              onPressed: _submit,
               child: const Text(
                 '시작하기',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -261,10 +346,7 @@ class Welcome extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Center(
-            child: TextButton(
-              onPressed: onStart,
-              child: const Text('이미 계정이 있어요 · 로그인'),
-            ),
+            child: TextButton(onPressed: _submit, child: const Text('바로 시작하기')),
           ),
           const SizedBox(height: 16),
         ],
@@ -273,29 +355,33 @@ class Welcome extends StatelessWidget {
   );
 }
 
-class Home extends StatelessWidget {
+class Home extends ConsumerWidget {
   const Home({
     super.key,
+    required this.nickname,
+    required this.missions,
     required this.coins,
     required this.xp,
     required this.completed,
     required this.onMission,
   });
+  final String nickname;
+  final List<Mission> missions;
   final int coins, xp;
   final List<String> completed;
   final ValueChanged<Mission> onMission;
   @override
-  Widget build(BuildContext context) => ListView(
+  Widget build(BuildContext context, WidgetRef ref) => ListView(
     padding: const EdgeInsets.all(20),
     children: [
-      const Row(
+      Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '좋은 아침이에요, 민지님',
+                '좋은 아침이에요, $nickname님',
                 style: TextStyle(
                   color: navy,
                   fontSize: 22,
@@ -326,11 +412,15 @@ class Home extends StatelessWidget {
                 ?.copyWith(fontWeight: FontWeight.bold, color: navy),
           ),
           TextButton(
-            onPressed: () => onMission(missions.first),
-            child: const Text('전체 보기'),
+            onPressed: () {
+              debugPrint('[Sidekick] today recommendation button tapped');
+              ref.read(sidekickControllerProvider.notifier).request();
+            },
+            child: const Text('오늘의 추천받기'),
           ),
         ],
       ),
+      if (missions.isEmpty) const Text('활성화된 Mission을 불러오는 중이거나 아직 없어요.'),
       ...missions
           .take(2)
           .map(
@@ -404,36 +494,170 @@ class Home extends StatelessWidget {
       ],
     ),
   );
-  Widget _sidekickCard(BuildContext c) => Container(
-    padding: const EdgeInsets.all(18),
-    decoration: BoxDecoration(
-      color: mint.withValues(alpha: .35),
-      borderRadius: BorderRadius.circular(16),
-    ),
-    child: Row(
-      children: [
-        const CircleAvatar(
-          backgroundColor: Colors.white,
-          child: Icon(Icons.smart_toy, color: navy),
-        ),
-        const SizedBox(width: 12),
-        const Expanded(
-          child: Text(
-            '오늘 10분 정도 시간이 있다면\n환경 Mission 하나 해볼래?',
-            style: TextStyle(color: navy, fontWeight: FontWeight.w600),
+  Widget _sidekickCard(BuildContext c) => SidekickCard(onMission: onMission);
+}
+
+class SidekickCard extends ConsumerWidget {
+  const SidekickCard({super.key, required this.onMission});
+  final ValueChanged<Mission> onMission;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(sidekickControllerProvider);
+    final recommendation = state.recommendation;
+    final mission = recommendation?.recommendedMission;
+    final message = state.status == SidekickStatus.error
+        ? state.message!
+        : recommendation?.sidekickMessage ??
+              '오늘 20분 정도 시간이 있다면\nSidekick에게 추천을 받아볼래?';
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: mint.withValues(alpha: .35),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          const CircleAvatar(
+            backgroundColor: Colors.white,
+            child: Icon(Icons.smart_toy, color: navy),
           ),
-        ),
-        TextButton(
-          onPressed: () => onMission(missions.first),
-          child: const Text('보기'),
-        ),
-      ],
-    ),
-  );
+          const SizedBox(width: 12),
+          Expanded(
+            child: state.status == SidekickStatus.loading
+                ? const Row(
+                    children: [
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 10),
+                      Text('추천을 준비하고 있어요...'),
+                    ],
+                  )
+                : Text(
+                    message,
+                    style: const TextStyle(
+                      color: navy,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+          ),
+          TextButton(
+            onPressed: state.status == SidekickStatus.loading
+                ? null
+                : () async {
+                    if (mission == null) {
+                      await ref
+                          .read(sidekickControllerProvider.notifier)
+                          .request();
+                    } else {
+                      onMission(mission);
+                    }
+                  },
+            child: Text(mission == null ? '추천받기' : '보기'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SidekickSheet extends ConsumerStatefulWidget {
+  const SidekickSheet({super.key, required this.onMission});
+  final ValueChanged<Mission> onMission;
+  @override
+  ConsumerState<SidekickSheet> createState() => _SidekickSheetState();
+}
+
+class _SidekickSheetState extends ConsumerState<SidekickSheet> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(
+      () => ref.read(sidekickControllerProvider.notifier).request(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(sidekickControllerProvider);
+    final recommendation = state.recommendation;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const CircleAvatar(
+            radius: 28,
+            backgroundColor: mint,
+            child: Icon(Icons.smart_toy, color: navy, size: 30),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            '오늘의 Sidekick',
+            style: Theme.of(context).textTheme.titleLarge
+                ?.copyWith(fontWeight: FontWeight.bold, color: navy),
+          ),
+          const SizedBox(height: 8),
+          if (state.status == SidekickStatus.loading)
+            const Center(child: CircularProgressIndicator())
+          else if (state.status == SidekickStatus.error)
+            Text(state.message!)
+          else ...[
+            Text(recommendation?.sidekickMessage ?? ''),
+            if (recommendation?.recommendedMission != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                recommendation!.recommendedMission!.title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: navy,
+                ),
+              ),
+            ],
+            ...recommendation?.alternativeMissions
+                    .take(2)
+                    .map((m) => Text('• ${m.title}')) ??
+                const <Widget>[],
+          ],
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              FilledButton(
+                onPressed: recommendation?.recommendedMission == null
+                    ? null
+                    : () {
+                        Navigator.pop(context);
+                        widget.onMission(recommendation!.recommendedMission!);
+                      },
+                child: const Text('추천 미션 보기'),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () => ref
+                    .read(sidekickControllerProvider.notifier)
+                    .request(forceRefresh: true),
+                child: const Text('다른 Mission'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class Missions extends StatelessWidget {
-  const Missions({super.key, required this.completed, required this.onMission});
+  const Missions({
+    super.key,
+    required this.missions,
+    required this.completed,
+    required this.onMission,
+  });
+  final List<Mission> missions;
   final List<String> completed;
   final ValueChanged<Mission> onMission;
   @override
@@ -488,7 +712,12 @@ class MissionTile extends StatelessWidget {
   Widget build(BuildContext c) => Card(
     margin: const EdgeInsets.only(bottom: 12),
     child: ListTile(
-      onTap: onTap,
+      onTap: () {
+        debugPrint(
+          '[Mission] card tap title=${mission.title} id=${mission.id ?? 'unknown'}',
+        );
+        onTap();
+      },
       contentPadding: const EdgeInsets.all(12),
       leading: CircleAvatar(
         backgroundColor: mint,
@@ -523,7 +752,51 @@ class MissionDetail extends StatefulWidget {
 }
 
 class _MissionDetailState extends State<MissionDetail> {
-  bool photo = false;
+  final _picker = ImagePicker();
+  final _verifier = PrototypeActivityVerificationService();
+  XFile? photo;
+  bool submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    debugPrint('[ActivityVerification] screen built');
+  }
+
+  Future<void> _pick(ImageSource source) async {
+    try {
+      final selected = await _picker.pickImage(source: source);
+      if (selected != null) setState(() => photo = selected);
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[Activity] photo selection failed: ${error.runtimeType}: $error',
+      );
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('사진을 불러오지 못했어요.')));
+      }
+    }
+  }
+
+  Future<void> _complete() async {
+    if (photo == null || submitting) return;
+    setState(() => submitting = true);
+    try {
+      final result = await _verifier.verifyActivity(photo!, widget.mission);
+      if (result.approved) widget.onComplete();
+    } catch (error, stackTrace) {
+      debugPrint('[Activity] verification failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('활동 인증에 실패했어요.')));
+      }
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext c) => Scaffold(
     appBar: AppBar(title: const Text('Mission 상세')),
@@ -564,7 +837,7 @@ class _MissionDetailState extends State<MissionDetail> {
         ),
         const SizedBox(height: 8),
         GestureDetector(
-          onTap: () => setState(() => photo = true),
+          onTap: () => _pick(ImageSource.gallery),
           child: Container(
             height: 150,
             decoration: BoxDecoration(
@@ -573,12 +846,8 @@ class _MissionDetailState extends State<MissionDetail> {
               border: Border.all(color: navy.withValues(alpha: .15)),
             ),
             child: Center(
-              child: photo
-                  ? const Icon(
-                      Icons.check_circle,
-                      color: Colors.green,
-                      size: 42,
-                    )
+              child: photo != null
+                  ? Image.file(File(photo!.path), fit: BoxFit.cover)
                   : const Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -590,11 +859,36 @@ class _MissionDetailState extends State<MissionDetail> {
             ),
           ),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => _pick(ImageSource.gallery),
+              icon: const Icon(Icons.photo_library),
+              label: const Text('앨범'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: () => _pick(ImageSource.camera),
+              icon: const Icon(Icons.camera_alt),
+              label: const Text('촬영'),
+            ),
+            if (photo != null) ...[
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () => setState(() => photo = null),
+                child: const Text('삭제'),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
         SizedBox(
           height: 52,
           child: FilledButton(
-            onPressed: widget.done || !photo ? null : widget.onComplete,
+            onPressed: widget.done || photo == null || submitting
+                ? null
+                : _complete,
             child: Text(widget.done ? '완료한 Mission' : 'Mission 완료하기'),
           ),
         ),
@@ -646,6 +940,7 @@ class Avatar extends StatelessWidget {
 class HeroPage extends StatelessWidget {
   const HeroPage({
     super.key,
+    required this.nickname,
     required this.coins,
     required this.xp,
     required this.owned,
@@ -654,6 +949,7 @@ class HeroPage extends StatelessWidget {
     required this.onEquip,
   });
   final int coins, xp;
+  final String nickname;
   final Set<String> owned;
   final String? equipped;
   final void Function(String, int) onBuy;
@@ -670,13 +966,13 @@ class HeroPage extends StatelessWidget {
               ?.copyWith(fontWeight: FontWeight.bold, color: navy),
         ),
         const SizedBox(height: 16),
-        const Center(
+        Center(
           child: Column(
             children: [
               Avatar(),
               SizedBox(height: 12),
               Text(
-                '민지의 Everyday Hero',
+                '$nickname의 Everyday Hero',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -729,9 +1025,13 @@ class Profile extends StatelessWidget {
     required this.coins,
     required this.xp,
     required this.completed,
+    required this.nickname,
+    required this.onLogout,
   });
   final int coins, xp;
   final List<String> completed;
+  final String nickname;
+  final VoidCallback onLogout;
   @override
   Widget build(BuildContext c) => ListView(
     padding: const EdgeInsets.all(20),
@@ -746,11 +1046,11 @@ class Profile extends StatelessWidget {
         children: [
           const Avatar(),
           const SizedBox(width: 18),
-          const Column(
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '민지',
+                nickname,
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
@@ -764,6 +1064,12 @@ class Profile extends StatelessWidget {
       ),
       const SizedBox(height: 8),
       Text('Lv. 2 · $coins Coin · $xp XP'),
+      const SizedBox(height: 20),
+      OutlinedButton.icon(
+        onPressed: onLogout,
+        icon: const Icon(Icons.logout),
+        label: const Text('로그아웃 (데이터 초기화)'),
+      ),
       const SizedBox(height: 28),
       const Text(
         'Hero Identity',
