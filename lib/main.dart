@@ -14,6 +14,11 @@ import 'features/sidekick/application/sidekick_controller.dart';
 import 'features/sidekick/data/sidekick_repository.dart';
 import 'features/economy/data/economy_repository.dart';
 import 'features/missions/application/activity_verification_service.dart';
+import 'design/tokens.dart';
+import 'design/components/hero_stage.dart';
+import 'design/components/sidekick_widget.dart';
+import 'design/components/premium_mission_card.dart';
+import 'design/components/hero_avatar.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -99,12 +104,7 @@ class _WeHeroAppState extends ConsumerState<_AuthenticatedApp> {
       scaffoldMessengerKey: _scaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
       title: 'WE HERO',
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: bg,
-        colorScheme: ColorScheme.fromSeed(seedColor: navy),
-        fontFamily: 'Arial',
-      ),
+      theme: heroTheme(),
       home: switch (authState.status) {
         AuthStatus.loading => const Scaffold(
           body: Center(child: CircularProgressIndicator()),
@@ -371,83 +371,135 @@ class Home extends ConsumerWidget {
   final List<String> completed;
   final ValueChanged<Mission> onMission;
   @override
-  Widget build(BuildContext context, WidgetRef ref) => ListView(
-    padding: const EdgeInsets.all(20),
-    children: [
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '좋은 아침이에요, $nickname님',
-                style: TextStyle(
-                  color: navy,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sidekick = ref.watch(sidekickControllerProvider);
+    final recommendation = sidekick.recommendation?.recommendedMission;
+    final mission =
+        recommendation ?? (missions.isEmpty ? null : missions.first);
+    final message = sidekick.status == SidekickStatus.error
+        ? (sidekick.message ?? '잠시 후 다시 시도해줘.')
+        : sidekick.recommendation?.sidekickMessage ?? '오늘 할 Mission을 찾아봤어.';
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'WE HERO',
+                  style: TextStyle(
+                    color: navy,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ),
-              SizedBox(height: 4),
-              Text('오늘도 작은 영웅이 되어볼까요?'),
-            ],
-          ),
-          CircleAvatar(
-            backgroundColor: yellow,
-            child: Icon(Icons.star, color: navy),
-          ),
-        ],
-      ),
-      const SizedBox(height: 22),
-      _heroCard(context),
-      const SizedBox(height: 20),
-      _sidekickCard(context),
-      const SizedBox(height: 24),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            '오늘의 Mission',
-            style: Theme.of(context).textTheme.titleLarge
-                ?.copyWith(fontWeight: FontWeight.bold, color: navy),
-          ),
-          TextButton(
-            onPressed: () {
-              debugPrint('[Sidekick] today recommendation button tapped');
-              ref.read(sidekickControllerProvider.notifier).request();
-            },
-            child: const Text('오늘의 추천받기'),
-          ),
-        ],
-      ),
-      if (missions.isEmpty) const Text('활성화된 Mission을 불러오는 중이거나 아직 없어요.'),
-      ...missions
-          .take(2)
-          .map(
-            (m) => MissionTile(
-              mission: m,
-              done: completed.contains(m.title),
-              onTap: () => onMission(m),
+                const SizedBox(height: 6),
+                Text(
+                  '$nickname님, 오늘도 작은 행동부터 시작해요.',
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: HeroColors.secondaryText,
+                    fontSize: 19.2,
+                  ),
+                ),
+              ],
             ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: yellow,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.monetization_on, color: navy, size: 18),
+                  const SizedBox(width: 5),
+                  Text(
+                    '$coins',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: navy,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 22),
+        HeroStage(
+          nickname: nickname,
+          coins: coins,
+          xp: xp,
+          hero: const HeroAvatar(),
+        ),
+        const SizedBox(height: 18),
+        SidekickWidget(
+          message: message,
+          loading: sidekick.status == SidekickStatus.loading,
+          onTap: () => ref.read(sidekickControllerProvider.notifier).request(),
+        ),
+        const SizedBox(height: 24),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '오늘의 Mission',
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.bold, color: navy),
+            ),
+            TextButton(
+              onPressed: () {
+                debugPrint('[Sidekick] today recommendation button tapped');
+                ref.read(sidekickControllerProvider.notifier).request();
+              },
+              child: const Text('추천받기'),
+            ),
+          ],
+        ),
+        if (mission == null)
+          const Text('아직 Mission이 없어. Sidekick에게 물어볼까?')
+        else
+          PremiumMissionCard(
+            mission: mission,
+            done: completed.contains(mission.title),
+            onTap: () => onMission(mission),
           ),
-    ],
-  );
+      ],
+    );
+  }
+
+  // ignore: unused_element
   Widget _heroCard(BuildContext c) => Container(
-    padding: const EdgeInsets.all(20),
+    padding: const EdgeInsets.all(22),
     decoration: BoxDecoration(
-      color: navy,
-      borderRadius: BorderRadius.circular(24),
+      gradient: const LinearGradient(
+        colors: [Color(0xFF17233C), Color(0xFF273B63)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      borderRadius: BorderRadius.circular(HeroRadius.card),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x2217233C),
+          blurRadius: 20,
+          offset: Offset(0, 10),
+        ),
+      ],
     ),
     child: Row(
       children: [
-        const Avatar(),
+        const HeroAvatar(),
         const SizedBox(width: 18),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'EVERYDAY HERO',
+                'EVERYDAY HERO  •  HQ ONLINE',
                 style: TextStyle(
                   color: mint,
                   fontWeight: FontWeight.bold,
@@ -456,7 +508,7 @@ class Home extends ConsumerWidget {
               ),
               const SizedBox(height: 5),
               const Text(
-                'Lv. 2',
+                'LV. 02',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 26,
@@ -494,6 +546,7 @@ class Home extends ConsumerWidget {
       ],
     ),
   );
+  // ignore: unused_element
   Widget _sidekickCard(BuildContext c) => SidekickCard(onMission: onMission);
 }
 
@@ -514,7 +567,8 @@ class SidekickCard extends ConsumerWidget {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: mint.withValues(alpha: .35),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(HeroRadius.medium),
+        border: Border.all(color: mint.withValues(alpha: .8)),
       ),
       child: Row(
         children: [
@@ -584,67 +638,72 @@ class _SidekickSheetState extends ConsumerState<SidekickSheet> {
   Widget build(BuildContext context) {
     final state = ref.watch(sidekickControllerProvider);
     final recommendation = state.recommendation;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const CircleAvatar(
-            radius: 28,
-            backgroundColor: mint,
-            child: Icon(Icons.smart_toy, color: navy, size: 30),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '오늘의 Sidekick',
-            style: Theme.of(context).textTheme.titleLarge
-                ?.copyWith(fontWeight: FontWeight.bold, color: navy),
-          ),
-          const SizedBox(height: 8),
-          if (state.status == SidekickStatus.loading)
-            const Center(child: CircularProgressIndicator())
-          else if (state.status == SidekickStatus.error)
-            Text(state.message!)
-          else ...[
-            Text(recommendation?.sidekickMessage ?? ''),
-            if (recommendation?.recommendedMission != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                recommendation!.recommendedMission!.title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: navy,
+    final sheetWidth = MediaQuery.sizeOf(context).width;
+    return SizedBox(
+      width: sheetWidth.isFinite && sheetWidth > 0 ? sheetWidth : 320,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const CircleAvatar(
+              radius: 28,
+              backgroundColor: mint,
+              child: Icon(Icons.smart_toy, color: navy, size: 30),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '오늘의 Sidekick',
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.bold, color: navy),
+            ),
+            const SizedBox(height: 8),
+            if (state.status == SidekickStatus.loading)
+              const Center(child: CircularProgressIndicator())
+            else if (state.status == SidekickStatus.error)
+              Text(state.message!)
+            else ...[
+              Text(recommendation?.sidekickMessage ?? ''),
+              if (recommendation?.recommendedMission != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  recommendation!.recommendedMission!.title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: navy,
+                  ),
                 ),
-              ),
+              ],
+              ...recommendation?.alternativeMissions
+                      .take(2)
+                      .map((m) => Text('• ${m.title}')) ??
+                  const <Widget>[],
             ],
-            ...recommendation?.alternativeMissions
-                    .take(2)
-                    .map((m) => Text('• ${m.title}')) ??
-                const <Widget>[],
+            const SizedBox(height: 18),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton(
+                  onPressed: recommendation?.recommendedMission == null
+                      ? null
+                      : () {
+                          Navigator.pop(context);
+                          widget.onMission(recommendation!.recommendedMission!);
+                        },
+                  child: const Text('추천 미션 보기'),
+                ),
+                TextButton(
+                  onPressed: () => ref
+                      .read(sidekickControllerProvider.notifier)
+                      .request(forceRefresh: true),
+                  child: const Text('다른 Mission'),
+                ),
+              ],
+            ),
           ],
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              FilledButton(
-                onPressed: recommendation?.recommendedMission == null
-                    ? null
-                    : () {
-                        Navigator.pop(context);
-                        widget.onMission(recommendation!.recommendedMission!);
-                      },
-                child: const Text('추천 미션 보기'),
-              ),
-              const SizedBox(width: 8),
-              TextButton(
-                onPressed: () => ref
-                    .read(sidekickControllerProvider.notifier)
-                    .request(forceRefresh: true),
-                child: const Text('다른 Mission'),
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -662,20 +721,23 @@ class Missions extends StatelessWidget {
   final ValueChanged<Mission> onMission;
   @override
   Widget build(BuildContext c) => ListView(
-    padding: const EdgeInsets.all(20),
+    padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
     children: [
       Text(
         'Mission',
         style: Theme.of(c).textTheme.headlineMedium
             ?.copyWith(fontWeight: FontWeight.bold, color: navy),
       ),
-      const Text('작은 행동 하나가 세상을 바꿔요.'),
+      const Text(
+        '오늘 할 수 있는 작은 Quest를 골라보세요.',
+        style: TextStyle(color: HeroColors.secondaryText),
+      ),
       const SizedBox(height: 20),
       Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: yellow,
-          borderRadius: BorderRadius.circular(16),
+          gradient: const LinearGradient(colors: [yellow, Color(0xFFFFD978)]),
+          borderRadius: BorderRadius.circular(HeroRadius.medium),
         ),
         child: const Text(
           '오늘의 추천\n부담 없이 10분부터 시작해요.',
@@ -688,52 +750,13 @@ class Missions extends StatelessWidget {
       ),
       const SizedBox(height: 20),
       ...missions.map(
-        (m) => MissionTile(
+        (m) => PremiumMissionCard(
           mission: m,
           done: completed.contains(m.title),
           onTap: () => onMission(m),
         ),
       ),
     ],
-  );
-}
-
-class MissionTile extends StatelessWidget {
-  const MissionTile({
-    super.key,
-    required this.mission,
-    required this.done,
-    required this.onTap,
-  });
-  final Mission mission;
-  final bool done;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext c) => Card(
-    margin: const EdgeInsets.only(bottom: 12),
-    child: ListTile(
-      onTap: () {
-        debugPrint(
-          '[Mission] card tap title=${mission.title} id=${mission.id ?? 'unknown'}',
-        );
-        onTap();
-      },
-      contentPadding: const EdgeInsets.all(12),
-      leading: CircleAvatar(
-        backgroundColor: mint,
-        child: Icon(mission.icon, color: navy),
-      ),
-      title: Text(
-        mission.title,
-        style: const TextStyle(fontWeight: FontWeight.bold, color: navy),
-      ),
-      subtitle: Text(
-        '${mission.category} · ${mission.minutes}분 · Coin ${mission.coin}',
-      ),
-      trailing: done
-          ? const Icon(Icons.check_circle, color: Colors.green)
-          : const Icon(Icons.chevron_right),
-    ),
   );
 }
 
@@ -799,27 +822,32 @@ class _MissionDetailState extends State<MissionDetail> {
 
   @override
   Widget build(BuildContext c) => Scaffold(
-    appBar: AppBar(title: const Text('Mission 상세')),
+    appBar: AppBar(title: const Text('Quest Proof'), centerTitle: false),
     body: ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
       children: [
-        Container(
-          height: 180,
-          decoration: BoxDecoration(
-            color: mint,
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Icon(widget.mission.icon, size: 90, color: navy),
+        Row(
+          children: [
+            Chip(label: Text(widget.mission.category.toUpperCase())),
+            const Spacer(),
+            Text(
+              '${widget.mission.minutes} min',
+              style: Theme.of(c).textTheme.bodyMedium,
+            ),
+          ],
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 12),
         Text(
           widget.mission.title,
           style: Theme.of(c).textTheme.headlineSmall
               ?.copyWith(fontWeight: FontWeight.bold, color: navy),
         ),
-        const SizedBox(height: 10),
-        Text(widget.mission.description, style: const TextStyle(fontSize: 16)),
-        const SizedBox(height: 18),
+        const SizedBox(height: 8),
+        Text(
+          widget.mission.description,
+          style: Theme.of(c).textTheme.bodyLarge,
+        ),
+        const SizedBox(height: 14),
         Row(
           children: [
             Chip(label: Text('${widget.mission.minutes}분')),
@@ -829,9 +857,9 @@ class _MissionDetailState extends State<MissionDetail> {
             Chip(label: Text('XP +${widget.mission.xp}')),
           ],
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 24),
         Text(
-          '활동 인증',
+          '오늘의 Hero Moment',
           style: Theme.of(c).textTheme.titleLarge
               ?.copyWith(fontWeight: FontWeight.bold, color: navy),
         ),
@@ -839,11 +867,11 @@ class _MissionDetailState extends State<MissionDetail> {
         GestureDetector(
           onTap: () => _pick(ImageSource.gallery),
           child: Container(
-            height: 150,
+            height: 220,
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: navy.withValues(alpha: .15)),
+              borderRadius: BorderRadius.circular(HeroRadius.card),
+              border: Border.all(color: HeroColors.mint, width: 2),
             ),
             child: Center(
               child: photo != null
@@ -851,9 +879,11 @@ class _MissionDetailState extends State<MissionDetail> {
                   : const Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.add_a_photo_outlined, color: navy, size: 32),
-                        SizedBox(height: 8),
-                        Text('사진을 한 장 올려주세요'),
+                        Icon(Icons.add_a_photo_outlined, color: navy, size: 44),
+                        SizedBox(height: 12),
+                        Text('Capture your Hero Moment'),
+                        SizedBox(height: 4),
+                        Text('갤러리에서 사진을 선택해줘'),
                       ],
                     ),
             ),
@@ -897,46 +927,6 @@ class _MissionDetailState extends State<MissionDetail> {
   );
 }
 
-class Avatar extends StatelessWidget {
-  const Avatar({super.key});
-  @override
-  Widget build(BuildContext c) => Container(
-    width: 92,
-    height: 110,
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(22),
-    ),
-    child: Stack(
-      alignment: Alignment.center,
-      children: [
-        const Positioned(
-          top: 14,
-          child: CircleAvatar(radius: 25, backgroundColor: Color(0xFFFFD2B8)),
-        ),
-        Positioned(
-          top: 52,
-          child: Container(
-            width: 50,
-            height: 48,
-            decoration: const BoxDecoration(
-              color: coral,
-              borderRadius: BorderRadius.vertical(
-                top: Radius.circular(20),
-                bottom: Radius.circular(10),
-              ),
-            ),
-          ),
-        ),
-        const Positioned(
-          top: 6,
-          child: Icon(Icons.wb_sunny, color: yellow, size: 34),
-        ),
-      ],
-    ),
-  );
-}
-
 class HeroPage extends StatelessWidget {
   const HeroPage({
     super.key,
@@ -958,31 +948,43 @@ class HeroPage extends StatelessWidget {
   Widget build(BuildContext c) {
     final items = {'민트 후디': 80, '노란 스니커즈': 60, '탐험가 모자': 100};
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
       children: [
         Text(
-          '나의 Hero',
+          'Hero Locker',
           style: Theme.of(c).textTheme.headlineMedium
               ?.copyWith(fontWeight: FontWeight.bold, color: navy),
         ),
         const SizedBox(height: 16),
-        Center(
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: HeroColors.navy,
+            borderRadius: BorderRadius.circular(HeroRadius.card),
+          ),
           child: Column(
             children: [
-              Avatar(),
-              SizedBox(height: 12),
+              const HeroAvatar(),
+              const SizedBox(height: 12),
               Text(
-                '$nickname의 Everyday Hero',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: navy,
-                ),
+                '$nickname · EVERYDAY HERO',
+                style: Theme.of(c).textTheme.titleLarge
+                    ?.copyWith(color: Colors.white),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'LV. 02   •   $xp XP   •   $coins COIN',
+                style: const TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 12),
+              LinearProgressIndicator(
+                value: (xp % 125) / 125,
+                color: HeroColors.yellow,
+                backgroundColor: Colors.white24,
               ),
             ],
           ),
         ),
-        Center(child: Text('Lv. 2 · $xp XP · $coins Coin')),
         const SizedBox(height: 28),
         Text(
           'Avatar Shop',
@@ -990,30 +992,63 @@ class HeroPage extends StatelessWidget {
               ?.copyWith(fontWeight: FontWeight.bold, color: navy),
         ),
         const SizedBox(height: 10),
-        ...items.entries.map((e) {
-          final isOwned = owned.contains(e.key);
-          return Card(
-            child: ListTile(
-              title: Text(
-                e.key,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Text(isOwned ? '보유 중' : '${e.value} Coin'),
-              leading: const CircleAvatar(
-                backgroundColor: mint,
-                child: Icon(Icons.checkroom, color: navy),
-              ),
-              trailing: FilledButton(
-                onPressed: isOwned
-                    ? () => onEquip(e.key)
-                    : () => onBuy(e.key, e.value),
-                child: Text(
-                  isOwned ? (equipped == e.key ? '착용 중' : '착용') : '구매',
+        Wrap(
+          spacing: 8,
+          children: const [
+            Chip(label: Text('ALL GEAR')),
+            Chip(label: Text('OUTFITS')),
+            Chip(label: Text('ACCESSORIES')),
+          ],
+        ),
+        const SizedBox(height: 14),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: .72,
+          children: items.entries.map((e) {
+            final isOwned = owned.contains(e.key);
+            return Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Center(
+                        child: Icon(
+                          Icons.checkroom,
+                          size: 54,
+                          color: HeroColors.navy,
+                        ),
+                      ),
+                    ),
+                    Text(e.key, style: Theme.of(c).textTheme.titleMedium),
+                    const SizedBox(height: 6),
+                    Text(
+                      isOwned ? '보유 중' : '${e.value} Coin',
+                      style: Theme.of(c).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: isOwned
+                            ? () => onEquip(e.key)
+                            : () => onBuy(e.key, e.value),
+                        child: Text(
+                          isOwned ? (equipped == e.key ? '착용 중' : '착용') : '구매',
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          );
-        }),
+            );
+          }).toList(),
+        ),
       ],
     );
   }
@@ -1034,33 +1069,41 @@ class Profile extends StatelessWidget {
   final VoidCallback onLogout;
   @override
   Widget build(BuildContext c) => ListView(
-    padding: const EdgeInsets.all(20),
+    padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
     children: [
       Text(
-        '프로필',
+        'Hero Journey',
         style: Theme.of(c).textTheme.headlineMedium
             ?.copyWith(fontWeight: FontWeight.bold, color: navy),
       ),
       const SizedBox(height: 20),
-      Row(
-        children: [
-          const Avatar(),
-          const SizedBox(width: 18),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                nickname,
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: navy,
-                ),
+      Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(HeroRadius.card),
+        ),
+        child: Row(
+          children: [
+            const HeroAvatar(),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(nickname, style: Theme.of(c).textTheme.titleLarge),
+                  const SizedBox(height: 6),
+                  const Text('Everyday Hero'),
+                  const SizedBox(height: 14),
+                  Text(
+                    'LV. 02  •  $xp XP  •  $coins Coin',
+                    style: Theme.of(c).textTheme.bodyMedium,
+                  ),
+                ],
               ),
-              Text('Everyday Hero'),
-            ],
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
       const SizedBox(height: 8),
       Text('Lv. 2 · $coins Coin · $xp XP'),
@@ -1083,6 +1126,8 @@ class Profile extends StatelessWidget {
       _bar('환경', .55, mint),
       _bar('나눔', .25, yellow),
       _bar('지역사회', .2, coral),
+      const SizedBox(height: 8),
+      Text('최근 활동과 성장 기록', style: Theme.of(c).textTheme.bodyMedium),
       const SizedBox(height: 24),
       Text(
         '최근 활동 ${completed.length}개',

@@ -27,7 +27,7 @@ void main() {
     expect(find.text('시작하기'), findsOneWidget);
     await tester.tap(find.text('시작하기'));
     await tester.pumpAndSettle();
-    expect(find.text('오늘의 Mission'), findsOneWidget);
+    expect(find.text('오늘의 Hero HQ'), findsOneWidget);
     expect(find.text('Sidekick'), findsOneWidget);
   });
 }
